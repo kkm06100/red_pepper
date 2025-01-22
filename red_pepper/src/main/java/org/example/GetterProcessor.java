@@ -1,68 +1,51 @@
 package org.example;
 
-import com.google.auto.service.AutoService;
+import com.squareup.javapoet.JavaFile;
+import com.squareup.javapoet.MethodSpec;
+import com.squareup.javapoet.TypeName;
+import com.squareup.javapoet.TypeSpec;
 
-import javax.annotation.processing.*;
+import javax.annotation.processing.AbstractProcessor;
+import javax.annotation.processing.RoundEnvironment;
+import javax.annotation.processing.SupportedAnnotationTypes;
+import javax.annotation.processing.SupportedSourceVersion;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
-import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
-import javax.tools.Diagnostic;
-import javax.tools.JavaFileObject;
-import java.io.Writer;
+import java.io.IOException;
 import java.util.Set;
 
-/**
- * <h1> 겁나 구린 어노테이션 프로세서</h1>
- * <strong>새로운 객체를 컴파일 타임에</strong> 생성함 -> <i>그걸 참조해야 Getter 기능을 쓸 수 있음</i>
- */
-@SupportedAnnotationTypes({"Getter"})
-@SupportedSourceVersion(SourceVersion.RELEASE_17)
-@AutoService(Processor.class)
+@SupportedAnnotationTypes("com.example.annotation.Getter") // 처리할 어노테이션 지정
+@SupportedSourceVersion(SourceVersion.RELEASE_17) // 지원할 Java 버전
 public class GetterProcessor extends AbstractProcessor {
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-        for(Element element : roundEnv.getElementsAnnotatedWith(Getter.class)){
-            if(element.getKind() == ElementKind.CLASS){
-                try{
+        for(Element element:roundEnv.getElementsAnnotatedWith(Getter.class)){
+            String fieldName = element.getSimpleName().toString();
+            String className = ((TypeElement)element.getEnclosingElement()).getSimpleName().toString();
 
-                }catch (Exception e){
-                    processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, e.getMessage());
-                }
+            String methodName = "get" + Character.toUpperCase(fieldName.charAt(0)) + fieldName.substring(1);
+            MethodSpec getterMethod = MethodSpec.methodBuilder(methodName)
+                    .addModifiers(Modifier.PUBLIC)
+                    .returns(TypeName.get(element.asType()))
+                    .addStatement("return this.$N",fieldName)
+                    .build();
+
+            TypeSpec generatedClass = TypeSpec.classBuilder(className + "Generated")
+                    .addModifiers(Modifier.PUBLIC)
+                    .addMethod(getterMethod)
+                    .build();
+
+            JavaFile javaFile = JavaFile.builder(processingEnv.getElementUtils()
+                    .getPackageOf(element).toString(),generatedClass)
+                    .build();
+            try {
+                javaFile.writeTo(processingEnv.getFiler());
+            }catch (IOException e){
+                e.printStackTrace();
             }
         }
         return true;
-    }
-    private void generateGetter(TypeElement classElement) throws Exception{
-        String className = classElement.getSimpleName().toString();
-        String packageName = processingEnv.getElementUtils().getPackageOf(classElement).toString();
-
-        StringBuilder code = new StringBuilder();
-        code.append("package ").append(className).append("\n\n");
-        code.append("public class").append(className).append("Getters {\n");
-
-        for(Element enclosed : classElement.getEnclosedElements()){
-            // not including modifier PRIVATE: !enclosed.getModifiers().contains(Modifier.PRIVATE)
-            if(enclosed.getKind() == ElementKind.FIELD){
-                String fieldName = enclosed.getSimpleName().toString();
-                String fieldType = enclosed.asType().toString();
-                String methodName = "get" + capitalize(fieldName);
-
-                code.append("   public").append(fieldType).append(" ").append(methodName)
-                        .append("() {\n}");
-                code.append("return this.").append(fieldName).append(";\n");
-                code.append("   }\n");
-            }
-        }
-        code.append("\n");
-
-        JavaFileObject file = processingEnv.getFiler()
-                .createSourceFile(packageName+"."+className+"Getters");
-        try(Writer writer =file.openWriter()){
-            writer.write(code.toString());
-        }
-    }
-    private String capitalize(String str){
-        return str.substring(0, 1).toUpperCase() + str.substring(1);
     }
 }
